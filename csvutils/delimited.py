@@ -1,4 +1,5 @@
 import csv
+import io
 import datetime
 
 
@@ -119,6 +120,7 @@ class Reader:
         return self
 
     def _process(self, line):
+        """Massage data before feeding it to csv.reader."""
         return line.replace('\0', ' ')
 
     def _open(self):
@@ -193,11 +195,15 @@ class Reader:
 
 class NoMultilineQuotedReader(Reader):
     def _process(self, line):
+        """Handle dangling quote characters before passing to csv.reader."""
         line = line.replace('\0', ' ')
         quote = self.quote_char
         if not quote:
             return line
 
+        # In the worst case, we scan the string to count chars/sequences five
+        # times. It might pay off to count all possible interesting substrings
+        # in a single pass, but it doesn't seem too promising.
         count = line.count(quote)
         if not count:
             return line
@@ -209,36 +215,40 @@ class NoMultilineQuotedReader(Reader):
         # Here we go. While the general idea of checking whether there
         # are balanced quotes, escaped quotes, etc. seems inviting, it might
         # only be a red herring: all paths seem to converge to parsing in
-        # the end.
-        # Maybe we should just feed the line to a new reader and use that
-        # to normalize the content for the real reader? Since the desired
-        # output is that newline has an effect similar to EOF...
+        # the end. So we use csv.reader to parse a single line, then
+        # normalize it by calling csv.writer.writerow.
 
         if escape not in line:
             # We have no escaped quotes. Let's figure out how many are
-            # valid quotes (as opposed to dangling ones).
+            # easy valid quotes (as opposed to possibly dangling ones).
             postfix = line.count(quote + delimiter)
-            if postfix and postfix != count:
-                # This is busted. We actually have to parse here, because
-                # order and position of quotes, escapes and postfixes
-                # matters. Cheat for the simple case, broken otherwise.
-                if postfix == count / 2:
-                    return line
-            remaining = count - postfix
-            dangling_quote = remaining % 2
         else:
             escaped = line.count(escape + quote)
-            if escaped == count:
+            if escaped == count:  # All quotes are escaped, we're done
                 return line
             escaped_postfix = line.count(escape + quote + delimiter)
             postfix = line.count(quote + delimiter) - escaped_postfix
-            if postfix == count:
-                return line
-            # Same as above: from here on, parsing is necessary, because
-            # position matters. We just cheat for the simple case, but a
-            # test to show brokeness should be easy to create.
-            remaining = count - escaped - postfix
-            dangling_quote = remaining % 2
-        if dangling_quote:
-            line = line.rstrip('\n') + '"\n'
+        if postfix == count:
+            # All non-escaped quotes appear right before a delimiter, a valid
+            # position: 'a,b",c' -> ['a', 'b"', 'c']
+            return line
+
+        # We couldn't bail out. So let's parse the line with a new reader
+        # and use that to normalize it.
+
+        # Striping leading/trailing newline/spaces might not be the best here.
+        # Adjust tests to desired behavior when it's decided upon.
+        line = line.strip()
+        reader = csv.reader((line,), delimiter=self.delimiter,
+                strict=self.strict_delimitation, quotechar=self.quote_char,
+                quoting=csv.QUOTE_NONE if self.quote_char is None
+                else DEFAULT_QUOTING,
+                skipinitialspace=DEFAULT_SKIPINITIALSPACE)
+        parsed_line = next(reader)
+        out = io.StringIO()
+        dialect = reader.dialect
+        writer = csv.writer(out, dialect)
+        writer.writerow(parsed_line)
+        line = out.getvalue()
+
         return line

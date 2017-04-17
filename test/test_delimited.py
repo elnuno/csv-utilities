@@ -270,6 +270,12 @@ d,e",f
 g,h,i
 '''
 
+        quoted_5 = b'''a,b,c
+\\"d,"e"\\",f"""
+g,h,i
+'''
+
+
         fields = [{'name': 'str1', 'datatype': 'string'},
                   {'name': 'str2', 'datatype': 'string'},
                   {'name': 'str3', 'datatype': 'string'},]
@@ -279,9 +285,11 @@ g,h,i
         expected_2 = ['a', 'b', 'c'], ['d,e', 'f'], ['g', 'h', 'i']
         expected_3 = ['a', 'b', 'c'], ['\\"d', 'e,f'], ['g', 'h', 'i']
         expected_4 = ['a', 'b', 'c'], ['d', 'e"', 'f'], ['g', 'h', 'i']
+        expected_5 = ['a', 'b', 'c'], ['\\"d', 'e\\"', 'f"""'], ['g', 'h', 'i']
 
-        inputs = quoted_0, quoted_1, quoted_2, quoted_3, quoted_4
-        outputs = expected_0, expected_1, expected_2, expected_3, expected_4
+        inputs = quoted_0, quoted_1, quoted_2, quoted_3, quoted_4, quoted_5
+        outputs = (expected_0, expected_1, expected_2, expected_3, expected_4,
+                   expected_5)
         test_file = 'tmp_test_reader.txt'
 
         for i, (inp, out) in enumerate(zip(inputs, outputs)):
