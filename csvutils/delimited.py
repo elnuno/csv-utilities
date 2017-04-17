@@ -118,13 +118,17 @@ class Reader:
             self._open()
         return self
 
+    def _process(self, line):
+        return line.replace('\0', ' ')
+
     def _open(self):
+        _process = self._process
         self.file = open(self.filename, 'r',
                          encoding=self.encoding,
                          errors=DEFAULT_DECODING_ERRORS if self.decoding_errors is None else self.decoding_errors,
-                         newline='')
+                         newline=None)
         # csv breaks if it encounters a null character
-        self.reader = csv.reader((l.replace('\0', ' ') for l in self.file),
+        self.reader = csv.reader((_process(line) for line in self.file),
                                  delimiter=self.delimiter,
                                  strict=self.strict_delimitation,
                                  quotechar=self.quote_char,
@@ -185,3 +189,56 @@ class Reader:
     @property
     def rows_read(self):
         return self._rows_read
+
+
+class NoMultilineQuotedReader(Reader):
+    def _process(self, line):
+        line = line.replace('\0', ' ')
+        quote = self.quote_char
+        if not quote:
+            return line
+
+        count = line.count(quote)
+        if not count:
+            return line
+
+        delimiter = self.delimiter
+        escape = '\\'
+        dangling_quote = False
+
+        # Here we go. While the general idea of checking whether there
+        # are balanced quotes, escaped quotes, etc. seems inviting, it might
+        # only be a red herring: all paths seem to converge to parsing in
+        # the end.
+        # Maybe we should just feed the line to a new reader and use that
+        # to normalize the content for the real reader? Since the desired
+        # output is that newline has an effect similar to EOF...
+
+        if escape not in line:
+            # We have no escaped quotes. Let's figure out how many are
+            # valid quotes (as opposed to dangling ones).
+            postfix = line.count(quote + delimiter)
+            if postfix and postfix != count:
+                # This is busted. We actually have to parse here, because
+                # order and position of quotes, escapes and postfixes
+                # matters. Cheat for the simple case, broken otherwise.
+                if postfix == count / 2:
+                    return line
+            remaining = count - postfix
+            dangling_quote = remaining % 2
+        else:
+            escaped = line.count(escape + quote)
+            if escaped == count:
+                return line
+            escaped_postfix = line.count(escape + quote + delimiter)
+            postfix = line.count(quote + delimiter) - escaped_postfix
+            if postfix == count:
+                return line
+            # Same as above: from here on, parsing is necessary, because
+            # position matters. We just cheat for the simple case, but a
+            # test to show brokeness should be easy to create.
+            remaining = count - escaped - postfix
+            dangling_quote = remaining % 2
+        if dangling_quote:
+            line = line.rstrip('\n') + '"\n'
+        return line

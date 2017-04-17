@@ -235,5 +235,66 @@ class DelimitedTests(unittest.TestCase):
             os.remove(test_file)
 
 
+class NewLineQuoteHandlingTests(DelimitedTests):
+    """Run the tests again using NoMultilineQuotedReader, plus new one."""
+
+    def setUp(self):
+        self.original_reader = delimited.Reader
+        delimited.Reader = delimited.NoMultilineQuotedReader
+
+    def tearDown(self):
+        delimited.Reader = self.original_reader
+
+    def test_quoted_newline(self):
+        quoted_0 = b'''a,b,c
+d,"e,f
+g,h,i
+'''
+
+        quoted_1 = b'''a,b,c
+d,"e,f
+g,h,i
+'''
+        quoted_2 = b'''a,b,c
+"d,"e,f
+g,h,i
+'''
+
+        quoted_3 = b'''a,b,c
+\\"d,"e,f
+g,h,i
+'''
+
+        quoted_4 = b'''a,b,c
+d,e",f
+g,h,i
+'''
+
+        fields = [{'name': 'str1', 'datatype': 'string'},
+                  {'name': 'str2', 'datatype': 'string'},
+                  {'name': 'str3', 'datatype': 'string'},]
+
+        expected_0 = ['a', 'b', 'c'], ['d', 'e,f'], ['g', 'h', 'i']
+        expected_1 = ['a', 'b', 'c'], ['d', 'e,f'], ['g', 'h', 'i']
+        expected_2 = ['a', 'b', 'c'], ['d,e', 'f'], ['g', 'h', 'i']
+        expected_3 = ['a', 'b', 'c'], ['\\"d', 'e,f'], ['g', 'h', 'i']
+        expected_4 = ['a', 'b', 'c'], ['d', 'e"', 'f'], ['g', 'h', 'i']
+
+        inputs = quoted_0, quoted_1, quoted_2, quoted_3, quoted_4
+        outputs = expected_0, expected_1, expected_2, expected_3, expected_4
+        test_file = 'tmp_test_reader.txt'
+
+        for i, (inp, out) in enumerate(zip(inputs, outputs)):
+            with open(test_file, 'wb') as fh:
+                fh.write(inp)
+            reader = delimited.NoMultilineQuotedReader(test_file, fields,
+                                                         delimiter=',')
+            self.assertEqual(tuple(reader), out, 'Subtest #%s' % i)
+            reader._close()
+
+        if os.path.isfile(test_file):
+            os.remove(test_file)
+
+
 if __name__ == '__main__':
     unittest.main()
